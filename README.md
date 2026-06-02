@@ -183,6 +183,14 @@ Adds a `DNS` line to the peer-side `peer.conf`.
 
 Adds an `MTU` line to the peer-side `peer.conf`.
 
+```text
+--keepalive VALUE
+--ka VALUE
+-ka VALUE
+```
+
+Adds a `PersistentKeepalive` line to the peer-side `peer.conf`. The value must be a non-negative integer.
+
 ## Create vs Update
 
 `create-interface` and `create-peer` are for new resources only. They fail if the target interface or peer already exists.

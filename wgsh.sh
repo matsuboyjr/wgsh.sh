@@ -57,6 +57,9 @@ create-peer/update-peer options:
 
   --mtu VALUE
       Add MTU to the peer-side peer.conf.
+
+  --keepalive VALUE, --ka VALUE, -ka VALUE
+      Add PersistentKeepalive to the peer-side peer.conf.
 __USAGE__
 }
 
@@ -119,6 +122,15 @@ validate_mtu(){
 
 	if ! [[ "$mtu" =~ ^[0-9]+$ ]] || [ "$mtu" -le 0 ];then
 		echo_error "invalid MTU: $mtu"
+		return 1
+	fi
+}
+
+validate_keepalive(){
+	local keepalive=$1
+
+	if ! [[ "$keepalive" =~ ^[0-9]+$ ]];then
+		echo_error "invalid PersistentKeepalive: $keepalive"
 		return 1
 	fi
 }
@@ -327,6 +339,18 @@ extract_mtu(){
 	' "$conf_file"
 }
 
+extract_keepalive(){
+	local conf_file=$1
+
+	awk '
+		/^PersistentKeepalive[[:space:]]*=/ {
+			sub(/^[^=]*=[[:space:]]*/, "")
+			print
+			exit
+		}
+	' "$conf_file"
+}
+
 join_lines(){
 	local line
 	local result=""
@@ -479,6 +503,11 @@ __PEER_CONF__
 AllowedIPs = $allowed_ips
 __PEER_CONF__
 	done
+	if [ -n "$PEER_KEEPALIVE" ];then
+		cat >> "$peer_file" <<__PEER_CONF__
+PersistentKeepalive = $PEER_KEEPALIVE
+__PEER_CONF__
+	fi
 
 	cat > "$peer_if" <<__IF_CONF__
 [Peer]
@@ -528,6 +557,7 @@ parse_peer_options(){
 	INTERFACE_ALLOWED_IPS=()
 	PEER_DNS=""
 	PEER_MTU=""
+	PEER_KEEPALIVE=""
 
 	while [ "$#" -gt 0 ];do
 		case "$1" in
@@ -564,6 +594,15 @@ parse_peer_options(){
 			PEER_MTU=$2
 			shift 2
 		;;
+		--keepalive|--ka|-ka)
+			if [ "$#" -lt 2 ];then
+				echo_error "$1 requires a value"
+				return 1
+			fi
+			validate_keepalive "$2"
+			PEER_KEEPALIVE=$2
+			shift 2
+		;;
 		*)
 			echo_error "unknown $command_name option: $1"
 			return 1
@@ -583,11 +622,13 @@ load_peer_options(){
 	INTERFACE_ALLOWED_IPS=()
 	PEER_DNS=""
 	PEER_MTU=""
+	PEER_KEEPALIVE=""
 	peer_conf=$(peer_file "$if_name" "$peer_name")
 	peer_if=$(peer_interface_file "$if_name" "$peer_name")
 
 	PEER_DNS=$(extract_dns "$peer_conf" || true)
 	PEER_MTU=$(extract_mtu "$peer_conf" || true)
+	PEER_KEEPALIVE=$(extract_keepalive "$peer_conf" || true)
 	while IFS= read -r line;do
 		PEER_ALLOWED_IPS+=("$line")
 	done < <(extract_allowed_ips_after_first "$peer_conf")
@@ -779,6 +820,7 @@ IP_ADDR         : $ip_addr
 PEER_ALLOWED_IPS: $default_peer_allowed_ips ${PEER_ALLOWED_IPS[*]:-}
 IF_ALLOWED_IPS  : $ip_addr/32 ${INTERFACE_ALLOWED_IPS[*]:-}
 MTU             : ${PEER_MTU:-}
+KEEPALIVE       : ${PEER_KEEPALIVE:-}
 __END_OF_PEER__
 
 	if ! confirm_yN ;then
@@ -814,6 +856,7 @@ cmd_update_peer(){
 	local current_interface_allowed_ips=""
 	local current_dns=""
 	local current_mtu=""
+	local current_keepalive=""
 	local new_peer_allowed_ips=""
 	local new_interface_allowed_ips=""
 
@@ -834,6 +877,7 @@ cmd_update_peer(){
 	current_interface_allowed_ips=$(extract_allowed_ips "$peer_if" | join_lines)
 	current_dns=$(extract_dns "$peer_conf" || true)
 	current_mtu=$(extract_mtu "$peer_conf" || true)
+	current_keepalive=$(extract_keepalive "$peer_conf" || true)
 	new_peer_allowed_ips="$default_peer_allowed_ips"
 	if [ "${#PEER_ALLOWED_IPS[@]}" -gt 0 ];then
 		new_peer_allowed_ips="$new_peer_allowed_ips ${PEER_ALLOWED_IPS[*]}"
@@ -861,6 +905,7 @@ PEER_ALLOWED_IPS: $current_peer_allowed_ips
 IF_ALLOWED_IPS  : $current_interface_allowed_ips
 DNS             : $current_dns
 MTU             : $current_mtu
+KEEPALIVE       : $current_keepalive
 
 NEW:
 ENDPOINT        : $if_endpoint
@@ -869,6 +914,7 @@ PEER_ALLOWED_IPS: $new_peer_allowed_ips
 IF_ALLOWED_IPS  : $new_interface_allowed_ips
 DNS             : ${PEER_DNS:-}
 MTU             : ${PEER_MTU:-}
+KEEPALIVE       : ${PEER_KEEPALIVE:-}
 __END_OF_PEER__
 
 	if ! confirm_yN ;then
