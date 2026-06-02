@@ -22,8 +22,8 @@ Usage:
 
 Commands:
   list-interfaces
-  create-interface IF_NAME GW_IP_ADDR HOST PORT
-  update-interface IF_NAME GW_IP_ADDR HOST PORT
+  create-interface IF_NAME GW_IP_ADDR HOST PORT [options]
+  update-interface IF_NAME GW_IP_ADDR HOST PORT [options]
   list-peers IF_NAME
   create-peer IF_NAME PEER_NAME IP_ADDR [options]
   update-peer IF_NAME PEER_NAME IP_ADDR [options]
@@ -39,6 +39,10 @@ Commands:
   exit
   quit
 
+create-interface/update-interface options:
+  --mtu VALUE
+      Add MTU to the server-side interface.conf.
+
 create-peer/update-peer options:
   --peer-allowed-ips VALUE, --pa VALUE, -pa VALUE
       Add an extra AllowedIPs line to the peer-side peer.conf.
@@ -50,6 +54,9 @@ create-peer/update-peer options:
 
   --dns VALUE
       Add DNS to the peer-side peer.conf.
+
+  --mtu VALUE
+      Add MTU to the peer-side peer.conf.
 __USAGE__
 }
 
@@ -103,6 +110,15 @@ validate_name(){
 
 	if ! [[ "$name" =~ ^[A-Za-z0-9_.-]+$ ]];then
 		echo_error "invalid $kind name: $name"
+		return 1
+	fi
+}
+
+validate_mtu(){
+	local mtu=$1
+
+	if ! [[ "$mtu" =~ ^[0-9]+$ ]] || [ "$mtu" -le 0 ];then
+		echo_error "invalid MTU: $mtu"
 		return 1
 	fi
 }
@@ -264,6 +280,17 @@ extract_allowed_ips_after_first(){
 	' "$conf_file"
 }
 
+extract_allowed_ips(){
+	local conf_file=$1
+
+	awk '
+		/^AllowedIPs[[:space:]]*=/ {
+			sub(/^[^=]*=[[:space:]]*/, "")
+			print
+		}
+	' "$conf_file"
+}
+
 extract_dns(){
 	local conf_file=$1
 
@@ -274,6 +301,45 @@ extract_dns(){
 			exit
 		}
 	' "$conf_file"
+}
+
+extract_endpoint(){
+	local conf_file=$1
+
+	awk '
+		/^Endpoint[[:space:]]*=/ {
+			sub(/^[^=]*=[[:space:]]*/, "")
+			print
+			exit
+		}
+	' "$conf_file"
+}
+
+extract_mtu(){
+	local conf_file=$1
+
+	awk '
+		/^MTU[[:space:]]*=/ {
+			sub(/^[^=]*=[[:space:]]*/, "")
+			print
+			exit
+		}
+	' "$conf_file"
+}
+
+join_lines(){
+	local line
+	local result=""
+
+	while IFS= read -r line;do
+		if [ -n "$result" ];then
+			result="$result $line"
+		else
+			result=$line
+		fi
+	done
+
+	echo "$result"
 }
 
 validate_peer_ip(){
@@ -328,6 +394,7 @@ write_interface_conf(){
 	local ip_addr=$2
 	local host=$3
 	local port=$4
+	local mtu=$5
 	local if2_dir
 	local if_file
 	local ip_prefix
@@ -347,6 +414,13 @@ write_interface_conf(){
 Address = $ip_addr/32
 ListenPort = $port
 PrivateKey = $(cat "$if2_dir/private.key")
+__END_OF_CONF__
+	if [ -n "$mtu" ];then
+		cat >> "$if_file" <<__END_OF_CONF__
+MTU = $mtu
+__END_OF_CONF__
+	fi
+	cat >> "$if_file" <<__END_OF_CONF__
 
 # CLIENTS
 
@@ -381,6 +455,11 @@ write_peer_confs(){
 PrivateKey = $(cat "$peer_dir/private.key")
 Address = $ip_addr/32
 __PEER_CONF__
+	if [ -n "$PEER_MTU" ];then
+		cat >> "$peer_file" <<__PEER_CONF__
+MTU = $PEER_MTU
+__PEER_CONF__
+	fi
 	if [ -n "$PEER_DNS" ];then
 		cat >> "$peer_file" <<__PEER_CONF__
 DNS = $PEER_DNS
@@ -416,6 +495,31 @@ __IF_CONF__
 	done
 }
 
+parse_interface_options(){
+	local command_name=$1
+	shift
+
+	IF_MTU=""
+
+	while [ "$#" -gt 0 ];do
+		case "$1" in
+		--mtu)
+			if [ "$#" -lt 2 ];then
+				echo_error "$1 requires a value"
+				return 1
+			fi
+			validate_mtu "$2"
+			IF_MTU=$2
+			shift 2
+		;;
+		*)
+			echo_error "unknown $command_name option: $1"
+			return 1
+		;;
+		esac
+	done
+}
+
 parse_peer_options(){
 	local command_name=$1
 	shift
@@ -423,6 +527,7 @@ parse_peer_options(){
 	PEER_ALLOWED_IPS=()
 	INTERFACE_ALLOWED_IPS=()
 	PEER_DNS=""
+	PEER_MTU=""
 
 	while [ "$#" -gt 0 ];do
 		case "$1" in
@@ -450,6 +555,15 @@ parse_peer_options(){
 			PEER_DNS=$2
 			shift 2
 		;;
+		--mtu)
+			if [ "$#" -lt 2 ];then
+				echo_error "$1 requires a value"
+				return 1
+			fi
+			validate_mtu "$2"
+			PEER_MTU=$2
+			shift 2
+		;;
 		*)
 			echo_error "unknown $command_name option: $1"
 			return 1
@@ -468,10 +582,12 @@ load_peer_options(){
 	PEER_ALLOWED_IPS=()
 	INTERFACE_ALLOWED_IPS=()
 	PEER_DNS=""
+	PEER_MTU=""
 	peer_conf=$(peer_file "$if_name" "$peer_name")
 	peer_if=$(peer_interface_file "$if_name" "$peer_name")
 
 	PEER_DNS=$(extract_dns "$peer_conf" || true)
+	PEER_MTU=$(extract_mtu "$peer_conf" || true)
 	while IFS= read -r line;do
 		PEER_ALLOWED_IPS+=("$line")
 	done < <(extract_allowed_ips_after_first "$peer_conf")
@@ -500,7 +616,7 @@ cmd_list_interfaces(){
 
 cmd_create_interface(){
 	if [ "$#" -lt 5 ];then
-		echo "Usage: $1 IF_NAME GW_IP_ADDR HOST PORT"
+		echo "Usage: $1 IF_NAME GW_IP_ADDR HOST PORT [options]"
 		return 1
 	fi
 	local if_name=$2
@@ -513,6 +629,7 @@ cmd_create_interface(){
 	local if_file="$if2_dir/interface.conf"
 
 	validate_name "interface" "$if_name"
+	parse_interface_options "$1" "${@:6}"
 
 	if [ -e "$if_file" ] || [ -e "$if2_dir/private.key" ] || [ -e "$if2_dir/public.key" ];then
 		echo_warn "$if_name already exists, quit."
@@ -529,6 +646,7 @@ IF_NAME         : $if_name
 ENDPOINT        : $host:$port
 IF_IP_ADDR      : $ip_addr
 IP_RANGE        : $ip_prefix.0/24
+MTU             : ${IF_MTU:-}
 __END_OF_IF__
 
 	if ! confirm_yN ;then
@@ -537,13 +655,13 @@ __END_OF_IF__
 
 	mkdir -p "$if2_dir"
 	create_wg_keys "$if2_dir"
-	write_interface_conf "$if_name" "$ip_addr" "$host" "$port"
+	write_interface_conf "$if_name" "$ip_addr" "$host" "$port" "$IF_MTU"
 	cat "$if_file"
 }
 
 cmd_update_interface(){
 	if [ "$#" -lt 5 ];then
-		echo "Usage: $1 IF_NAME GW_IP_ADDR HOST PORT"
+		echo "Usage: $1 IF_NAME GW_IP_ADDR HOST PORT [options]"
 		return 1
 	fi
 	local if_name=$2
@@ -556,28 +674,44 @@ cmd_update_interface(){
 	local peer_path
 	local peer_name
 	local peer_ip
+	local current_endpoint
+	local current_ip_addr
+	local current_ip_prefix
+	local current_mtu
 
 	validate_name "interface" "$if_name"
 	require_interface "$if_name"
+	parse_interface_options "$1" "${@:6}"
 	validate_interface_ip "$if_name" "$ip_addr"
+	current_endpoint=$(conf_value "$if_file" "IF_ENDPOINT")
+	current_ip_addr=$(conf_value "$if_file" "IF_IP_ADDR")
+	current_ip_prefix=$(conf_value "$if_file" "IF_IP_PREFIX")
+	current_mtu=$(extract_mtu "$if_file" || true)
 
 	cat <<__END_OF_IF__
 will update the interface.
 
 IF_FILE         : $if_file
-PRIVATE_KEY     : $if2_dir/private.key
-PUBLIC_KEY      : $if2_dir/public.key
 IF_NAME         : $if_name
+
+CURRENT:
+ENDPOINT        : $current_endpoint
+IF_IP_ADDR      : $current_ip_addr
+IP_RANGE        : ${current_ip_prefix%.*}.0/24
+MTU             : $current_mtu
+
+NEW:
 ENDPOINT        : $host:$port
 IF_IP_ADDR      : $ip_addr
 IP_RANGE        : ${ip_addr%.*}.0/24
+MTU             : ${IF_MTU:-}
 __END_OF_IF__
 
 	if ! confirm_yN ;then
 		return 0
 	fi
 
-	write_interface_conf "$if_name" "$ip_addr" "$host" "$port"
+	write_interface_conf "$if_name" "$ip_addr" "$host" "$port" "$IF_MTU"
 
 	if [ -d "$peers_dir" ];then
 		for peer_path in "$peers_dir"/*;do
@@ -644,6 +778,7 @@ ENDPOINT        : $if_endpoint
 IP_ADDR         : $ip_addr
 PEER_ALLOWED_IPS: $default_peer_allowed_ips ${PEER_ALLOWED_IPS[*]:-}
 IF_ALLOWED_IPS  : $ip_addr/32 ${INTERFACE_ALLOWED_IPS[*]:-}
+MTU             : ${PEER_MTU:-}
 __END_OF_PEER__
 
 	if ! confirm_yN ;then
@@ -671,6 +806,16 @@ cmd_update_peer(){
 	local if_endpoint=""
 	local default_peer_allowed_ips=""
 	local if_ip_prefix=""
+	local peer_conf=""
+	local peer_if=""
+	local current_endpoint=""
+	local current_ip_addr=""
+	local current_peer_allowed_ips=""
+	local current_interface_allowed_ips=""
+	local current_dns=""
+	local current_mtu=""
+	local new_peer_allowed_ips=""
+	local new_interface_allowed_ips=""
 
 	validate_name "interface" "$if_name"
 	validate_name "peer" "$peer_name"
@@ -681,6 +826,22 @@ cmd_update_peer(){
 	if_ip_prefix=$(conf_value "$if_file" "IF_IP_PREFIX")
 	if_endpoint=$(conf_value "$if_file" "IF_ENDPOINT")
 	default_peer_allowed_ips="${if_ip_prefix%.*}.0/24"
+	peer_conf=$(peer_file "$if_name" "$peer_name")
+	peer_if=$(peer_interface_file "$if_name" "$peer_name")
+	current_endpoint=$(extract_endpoint "$peer_conf" || true)
+	current_ip_addr=$(conf_value "$peer_if" "PEER_IP_ADDR")
+	current_peer_allowed_ips=$(extract_allowed_ips "$peer_conf" | join_lines)
+	current_interface_allowed_ips=$(extract_allowed_ips "$peer_if" | join_lines)
+	current_dns=$(extract_dns "$peer_conf" || true)
+	current_mtu=$(extract_mtu "$peer_conf" || true)
+	new_peer_allowed_ips="$default_peer_allowed_ips"
+	if [ "${#PEER_ALLOWED_IPS[@]}" -gt 0 ];then
+		new_peer_allowed_ips="$new_peer_allowed_ips ${PEER_ALLOWED_IPS[*]}"
+	fi
+	new_interface_allowed_ips="$ip_addr/32"
+	if [ "${#INTERFACE_ALLOWED_IPS[@]}" -gt 0 ];then
+		new_interface_allowed_ips="$new_interface_allowed_ips ${INTERFACE_ALLOWED_IPS[*]}"
+	fi
 
 	validate_peer_ip "$if_name" "$peer_name" "$ip_addr" 1
 
@@ -688,16 +849,26 @@ cmd_update_peer(){
 will update the peer.
 
 PEER_DIR        : $peer_dir
-PEER_FILE       : $(peer_file "$if_name" "$peer_name")
-PEER_INTERFACE  : $(peer_interface_file "$if_name" "$peer_name")
-PRIVATE_KEY     : $peer_dir/private.key
-PUBLIC_KEY      : $peer_dir/public.key
+PEER_FILE       : $peer_conf
+PEER_INTERFACE  : $peer_if
 IF_NAME         : $if_name
+STATUS          : $(peer_status "$if_name" "$peer_name")
+
+CURRENT:
+ENDPOINT        : $current_endpoint
+IP_ADDR         : $current_ip_addr
+PEER_ALLOWED_IPS: $current_peer_allowed_ips
+IF_ALLOWED_IPS  : $current_interface_allowed_ips
+DNS             : $current_dns
+MTU             : $current_mtu
+
+NEW:
 ENDPOINT        : $if_endpoint
 IP_ADDR         : $ip_addr
-PEER_ALLOWED_IPS: $default_peer_allowed_ips ${PEER_ALLOWED_IPS[*]:-}
-IF_ALLOWED_IPS  : $ip_addr/32 ${INTERFACE_ALLOWED_IPS[*]:-}
-STATUS          : $(peer_status "$if_name" "$peer_name")
+PEER_ALLOWED_IPS: $new_peer_allowed_ips
+IF_ALLOWED_IPS  : $new_interface_allowed_ips
+DNS             : ${PEER_DNS:-}
+MTU             : ${PEER_MTU:-}
 __END_OF_PEER__
 
 	if ! confirm_yN ;then

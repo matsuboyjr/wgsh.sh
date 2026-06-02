@@ -123,8 +123,8 @@ Show a terminal QR code for the peer config:
 
 ```text
 list-interfaces
-create-interface IF_NAME GW_IP_ADDR HOST PORT
-update-interface IF_NAME GW_IP_ADDR HOST PORT
+create-interface IF_NAME GW_IP_ADDR HOST PORT [options]
+update-interface IF_NAME GW_IP_ADDR HOST PORT [options]
 list-peers IF_NAME
 create-peer IF_NAME PEER_NAME IP_ADDR [options]
 update-peer IF_NAME PEER_NAME IP_ADDR [options]
@@ -140,6 +140,16 @@ help
 exit
 quit
 ```
+
+### Interface Options
+
+These options are accepted by `create-interface` and `update-interface`:
+
+```text
+--mtu VALUE
+```
+
+Adds an `MTU` line to the server-side `interface.conf`.
 
 ### Peer Options
 
@@ -167,17 +177,25 @@ Adds an extra `AllowedIPs` line to the server-side peer `interface.conf`. The pe
 
 Adds a `DNS` line to the peer-side `peer.conf`.
 
+```text
+--mtu VALUE
+```
+
+Adds an `MTU` line to the peer-side `peer.conf`.
+
 ## Create vs Update
 
 `create-interface` and `create-peer` are for new resources only. They fail if the target interface or peer already exists.
 
 `update-interface` and `update-peer` regenerate configuration files for existing resources without changing existing `private.key` or `public.key` files.
 
+Before updating, `update-interface` and `update-peer` print a `CURRENT` / `NEW` summary without private keys so optional values that will be removed by omitted options are visible before confirmation.
+
 When `update-interface` changes the endpoint or gateway IP, existing peer `peer.conf` files are regenerated so that:
 
 - `Endpoint` follows the new interface endpoint.
 - The default peer-side `AllowedIPs` follows the new gateway IP derived `/24`.
-- Existing peer DNS, peer-side extra `AllowedIPs`, and server-side extra `AllowedIPs` entries are preserved.
+- Existing peer DNS, peer MTU, peer-side extra `AllowedIPs`, and server-side extra `AllowedIPs` entries are preserved.
 
 ## AllowedIPs Behavior
 
