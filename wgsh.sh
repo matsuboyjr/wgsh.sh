@@ -669,8 +669,8 @@ cmd_create_interface(){
 	local if2_dir="$if_dir/interface"
 	local if_file="$if2_dir/interface.conf"
 
-	validate_name "interface" "$if_name"
-	parse_interface_options "$1" "${@:6}"
+	validate_name "interface" "$if_name" || return 1
+	parse_interface_options "$1" "${@:6}" || return 1
 
 	if [ -e "$if_file" ] || [ -e "$if2_dir/private.key" ] || [ -e "$if2_dir/public.key" ];then
 		echo_warn "$if_name already exists, quit."
@@ -720,10 +720,10 @@ cmd_update_interface(){
 	local current_ip_prefix
 	local current_mtu
 
-	validate_name "interface" "$if_name"
-	require_interface "$if_name"
-	parse_interface_options "$1" "${@:6}"
-	validate_interface_ip "$if_name" "$ip_addr"
+	validate_name "interface" "$if_name" || return 1
+	require_interface "$if_name" || return 1
+	parse_interface_options "$1" "${@:6}" || return 1
+	validate_interface_ip "$if_name" "$ip_addr" || return 1
 	current_endpoint=$(conf_value "$if_file" "IF_ENDPOINT")
 	current_ip_addr=$(conf_value "$if_file" "IF_IP_ADDR")
 	current_ip_prefix=$(conf_value "$if_file" "IF_IP_PREFIX")
@@ -790,16 +790,16 @@ cmd_create_peer(){
 	local default_peer_allowed_ips=""
 	local if_ip_prefix=""
 
-	validate_name "interface" "$if_name"
-	validate_name "peer" "$peer_name"
-	require_interface "$if_name"
-	parse_peer_options "$1" "${@:5}"
+	validate_name "interface" "$if_name" || return 1
+	validate_name "peer" "$peer_name" || return 1
+	require_interface "$if_name" || return 1
+	parse_peer_options "$1" "${@:5}" || return 1
 
 	if_ip_prefix=$(conf_value "$if_file" "IF_IP_PREFIX")
 	if_endpoint=$(conf_value "$if_file" "IF_ENDPOINT")
 	default_peer_allowed_ips="${if_ip_prefix%.*}.0/24"
 
-	validate_peer_ip "$if_name" "$peer_name" "$ip_addr" 0
+	validate_peer_ip "$if_name" "$peer_name" "$ip_addr" 0 || return 1
 
 	if [ -e "$peer_dir" ];then
 		echo_warn "$peer_name already exists in $if_dir/peers, quit."
@@ -860,11 +860,11 @@ cmd_update_peer(){
 	local new_peer_allowed_ips=""
 	local new_interface_allowed_ips=""
 
-	validate_name "interface" "$if_name"
-	validate_name "peer" "$peer_name"
-	require_interface "$if_name"
-	require_peer "$if_name" "$peer_name"
-	parse_peer_options "$1" "${@:5}"
+	validate_name "interface" "$if_name" || return 1
+	validate_name "peer" "$peer_name" || return 1
+	require_interface "$if_name" || return 1
+	require_peer "$if_name" "$peer_name" || return 1
+	parse_peer_options "$1" "${@:5}" || return 1
 
 	if_ip_prefix=$(conf_value "$if_file" "IF_IP_PREFIX")
 	if_endpoint=$(conf_value "$if_file" "IF_ENDPOINT")
@@ -887,7 +887,7 @@ cmd_update_peer(){
 		new_interface_allowed_ips="$new_interface_allowed_ips ${INTERFACE_ALLOWED_IPS[*]}"
 	fi
 
-	validate_peer_ip "$if_name" "$peer_name" "$ip_addr" 1
+	validate_peer_ip "$if_name" "$peer_name" "$ip_addr" 1 || return 1
 
 	cat <<__END_OF_PEER__
 will update the peer.
@@ -940,7 +940,7 @@ cmd_list_peers(){
 	local ip_addr=""
 	local found=0
 
-	validate_name "interface" "$if_name"
+	validate_name "interface" "$if_name" || return 1
 	if [ ! -d "$WG_SH2_HOME/$if_name" ];then
 		echo "interface $if_name not found, quit"
 		return 1
@@ -975,9 +975,9 @@ cmd_disable_peer(){
 	local peer_name=$3
 	local disabled_file
 
-	validate_name "interface" "$if_name"
-	validate_name "peer" "$peer_name"
-	require_peer "$if_name" "$peer_name"
+	validate_name "interface" "$if_name" || return 1
+	validate_name "peer" "$peer_name" || return 1
+	require_peer "$if_name" "$peer_name" || return 1
 	disabled_file=$(peer_disabled_file "$if_name" "$peer_name")
 
 	if [ -f "$disabled_file" ];then
@@ -1002,9 +1002,9 @@ cmd_enable_peer(){
 	local peer_name=$3
 	local disabled_file
 
-	validate_name "interface" "$if_name"
-	validate_name "peer" "$peer_name"
-	require_peer "$if_name" "$peer_name"
+	validate_name "interface" "$if_name" || return 1
+	validate_name "peer" "$peer_name" || return 1
+	require_peer "$if_name" "$peer_name" || return 1
 	disabled_file=$(peer_disabled_file "$if_name" "$peer_name")
 
 	if [ ! -f "$disabled_file" ];then
@@ -1030,9 +1030,9 @@ cmd_delete_peer(){
 	local dir
 	local disabled_file
 
-	validate_name "interface" "$if_name"
-	validate_name "peer" "$peer_name"
-	require_peer "$if_name" "$peer_name"
+	validate_name "interface" "$if_name" || return 1
+	validate_name "peer" "$peer_name" || return 1
+	require_peer "$if_name" "$peer_name" || return 1
 	dir=$(peer_dir "$if_name" "$peer_name")
 	disabled_file=$(peer_disabled_file "$if_name" "$peer_name")
 
@@ -1060,8 +1060,8 @@ cmd_render_interface(){
 	local peers_dir="$WG_SH2_HOME/$if_name/peers"
 	local peer_if=""
 	local peer_name=""
-	validate_name "interface" "$if_name"
-	require_interface "$if_name"
+	validate_name "interface" "$if_name" || return 1
+	require_interface "$if_name" || return 1
 	if_file=$(interface_file "$if_name")
 
 	cat "$if_file"
@@ -1089,8 +1089,8 @@ cmd_show_interface(){
 
 	local if_name=$2
 	local if_file
-	validate_name "interface" "$if_name"
-	require_interface "$if_name"
+	validate_name "interface" "$if_name" || return 1
+	require_interface "$if_name" || return 1
 	if_file=$(interface_file "$if_name")
 	cat "$if_file"
 }
@@ -1104,9 +1104,9 @@ cmd_show_peer(){
 	local if_name=$2
 	local peer_name=$3
 	local file
-	validate_name "interface" "$if_name"
-	validate_name "peer" "$peer_name"
-	require_peer "$if_name" "$peer_name"
+	validate_name "interface" "$if_name" || return 1
+	validate_name "peer" "$peer_name" || return 1
+	require_peer "$if_name" "$peer_name" || return 1
 	file=$(peer_file "$if_name" "$peer_name")
 	cat "$file"
 }
@@ -1120,8 +1120,8 @@ cmd_show_peer_interface(){
 	local if_name=$2
 	local peer_name=$3
 	local file
-	validate_name "interface" "$if_name"
-	validate_name "peer" "$peer_name"
+	validate_name "interface" "$if_name" || return 1
+	validate_name "peer" "$peer_name" || return 1
 	file=$(peer_interface_file "$if_name" "$peer_name")
 	if [ ! -f "$file" ];then
 		echo_warn "$file not found, quit."
@@ -1139,9 +1139,9 @@ cmd_show_peer_qr(){
 	local if_name=$2
 	local peer_name=$3
 	local file
-	validate_name "interface" "$if_name"
-	validate_name "peer" "$peer_name"
-	require_peer "$if_name" "$peer_name"
+	validate_name "interface" "$if_name" || return 1
+	validate_name "peer" "$peer_name" || return 1
+	require_peer "$if_name" "$peer_name" || return 1
 	file=$(peer_file "$if_name" "$peer_name")
 
 	if ! command -v qrencode >/dev/null 2>&1;then
