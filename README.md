@@ -55,18 +55,20 @@ For an interface named `wg0` and a peer named `phone`, the layout is:
 wg0/
   interface/
     interface.conf
+    include.conf
     private.key
     public.key
   peers/
     phone/
       peer.conf
       interface.conf
+      include.conf
       private.key
       public.key
       disabled
 ```
 
-The `disabled` file is present only when the peer is disabled.
+The `include.conf` files are created only when edited. The `disabled` file is present only when the peer is disabled.
 
 ## Quick Start
 
@@ -128,6 +130,8 @@ update-interface IF_NAME GW_IP_ADDR HOST PORT [options]
 list-peers IF_NAME
 create-peer IF_NAME PEER_NAME IP_ADDR [options]
 update-peer IF_NAME PEER_NAME IP_ADDR [options]
+edit-interface-include IF_NAME
+edit-peer-include IF_NAME PEER_NAME
 disable-peer IF_NAME PEER_NAME
 enable-peer IF_NAME PEER_NAME
 delete-peer IF_NAME PEER_NAME
@@ -197,6 +201,8 @@ Adds a `PersistentKeepalive` line to the peer-side `peer.conf`. The value must b
 
 `update-interface` and `update-peer` regenerate configuration files for existing resources without changing existing `private.key` or `public.key` files.
 
+Newly generated `interface.conf` and peer-side `peer.conf` files contain a `# INCLUDE` anchor near the end of the `[Interface]` section. Include files are expanded dynamically by `show-interface`, `render-interface`, and `show-peer`; the source config files keep the anchor instead of being rewritten with include content.
+
 Before updating, `update-interface` and `update-peer` print a `CURRENT` / `NEW` summary without private keys so optional values that will be removed by omitted options are visible before confirmation.
 
 When `update-interface` changes the endpoint or gateway IP, existing peer `peer.conf` files are regenerated so that:
@@ -256,21 +262,33 @@ Delete a peer:
 
 `render-interface` prints the server-side configuration for an interface by combining:
 
-- `IF_NAME/interface/interface.conf`
+- `IF_NAME/interface/interface.conf`, with `IF_NAME/interface/include.conf` expanded after `# INCLUDE` when present
 - enabled peer `IF_NAME/peers/PEER_NAME/interface.conf` files
 
 It writes to standard output only.
 
-`show-interface` prints only the base interface config:
+`show-interface` prints only the base interface config, expanding `IF_NAME/interface/include.conf` after `# INCLUDE` when present:
 
 ```sh
 ./wgsh.sh show-interface wg0
 ```
 
-`show-peer` prints the client-side peer config:
+`edit-interface-include` writes the interface include file. In CLI mode it reads from standard input after printing a one-line waiting notice to standard error. In REPL mode it opens the file with `$EDITOR`:
+
+```sh
+./wgsh.sh edit-interface-include wg0 < include.conf
+```
+
+`show-peer` prints the client-side peer config, expanding `IF_NAME/peers/PEER_NAME/include.conf` after `# INCLUDE` when present:
 
 ```sh
 ./wgsh.sh show-peer wg0 phone
+```
+
+`edit-peer-include` writes the peer-side include file with the same CLI and REPL behavior:
+
+```sh
+./wgsh.sh edit-peer-include wg0 phone < include.conf
 ```
 
 `show-peer-interface` prints the server-side peer fragment:

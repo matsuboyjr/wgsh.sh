@@ -27,6 +27,8 @@ Commands:
   list-peers IF_NAME
   create-peer IF_NAME PEER_NAME IP_ADDR [options]
   update-peer IF_NAME PEER_NAME IP_ADDR [options]
+  edit-interface-include IF_NAME
+  edit-peer-include IF_NAME PEER_NAME
   disable-peer IF_NAME PEER_NAME
   enable-peer IF_NAME PEER_NAME
   delete-peer IF_NAME PEER_NAME
@@ -153,6 +155,11 @@ interface_file(){
 	echo "$(interface_dir "$if_name")/interface.conf"
 }
 
+interface_include_file(){
+	local if_name=$1
+	echo "$(interface_dir "$if_name")/include.conf"
+}
+
 peer_dir(){
 	local if_name=$1
 	local peer_name=$2
@@ -163,6 +170,12 @@ peer_file(){
 	local if_name=$1
 	local peer_name=$2
 	echo "$(peer_dir "$if_name" "$peer_name")/peer.conf"
+}
+
+peer_include_file(){
+	local if_name=$1
+	local peer_name=$2
+	echo "$(peer_dir "$if_name" "$peer_name")/include.conf"
 }
 
 peer_interface_file(){
@@ -246,6 +259,40 @@ require_peer(){
 		echo_warn "$public_key_file not found, quit."
 		return 1
 	fi
+}
+
+print_with_include(){
+	local conf_file=$1
+	local include_file=$2
+	local line
+
+	while IFS= read -r line || [ -n "$line" ];do
+		printf "%s\n" "$line"
+		if [ "$line" = "# INCLUDE" ] && [ -f "$include_file" ];then
+			cat "$include_file"
+		fi
+	done < "$conf_file"
+}
+
+edit_include_file(){
+	local include_file=$1
+	local include_dir
+	include_dir=$(dirname "$include_file")
+
+	if [ "$WG_SH2_INTERACTIVE" -eq 1 ];then
+		if [ -z "${EDITOR:-}" ];then
+			echo_error "EDITOR is not set."
+			return 1
+		fi
+		mkdir -p "$include_dir"
+		touch "$include_file"
+		"$EDITOR" "$include_file"
+		return
+	fi
+
+	echo "waiting for standard input to write $include_file..." >&2
+	mkdir -p "$include_dir"
+	cat > "$include_file"
 }
 
 find_peer_ip(){
@@ -446,6 +493,8 @@ __END_OF_CONF__
 	fi
 	cat >> "$if_file" <<__END_OF_CONF__
 
+# INCLUDE
+
 # CLIENTS
 
 __END_OF_CONF__
@@ -491,6 +540,8 @@ __PEER_CONF__
 	fi
 
 	cat >> "$peer_file" <<__PEER_CONF__
+
+# INCLUDE
 
 [Peer]
 PublicKey = $(cat "$if2_dir/public.key")
@@ -1064,7 +1115,7 @@ cmd_render_interface(){
 	require_interface "$if_name" || return 1
 	if_file=$(interface_file "$if_name")
 
-	cat "$if_file"
+	print_with_include "$if_file" "$(interface_include_file "$if_name")"
 	if [ -d "$peers_dir" ];then
 		for peer_if in "$peers_dir"/*/interface.conf;do
 			if [ ! -f "$peer_if" ];then
@@ -1081,6 +1132,18 @@ cmd_render_interface(){
 	fi
 }
 
+cmd_edit_interface_include(){
+	if [ -z "${2:-}" ];then
+		echo "Usage: $1 IF_NAME"
+		return 1
+	fi
+
+	local if_name=$2
+	validate_name "interface" "$if_name" || return 1
+	require_interface "$if_name" || return 1
+	edit_include_file "$(interface_include_file "$if_name")"
+}
+
 cmd_show_interface(){
 	if [ -z "${2:-}" ];then
 		echo "Usage: $1 IF_NAME"
@@ -1092,7 +1155,7 @@ cmd_show_interface(){
 	validate_name "interface" "$if_name" || return 1
 	require_interface "$if_name" || return 1
 	if_file=$(interface_file "$if_name")
-	cat "$if_file"
+	print_with_include "$if_file" "$(interface_include_file "$if_name")"
 }
 
 cmd_show_peer(){
@@ -1108,7 +1171,21 @@ cmd_show_peer(){
 	validate_name "peer" "$peer_name" || return 1
 	require_peer "$if_name" "$peer_name" || return 1
 	file=$(peer_file "$if_name" "$peer_name")
-	cat "$file"
+	print_with_include "$file" "$(peer_include_file "$if_name" "$peer_name")"
+}
+
+cmd_edit_peer_include(){
+	if [ "$#" -lt 3 ];then
+		echo "Usage: $1 IF_NAME PEER_NAME"
+		return 1
+	fi
+
+	local if_name=$2
+	local peer_name=$3
+	validate_name "interface" "$if_name" || return 1
+	validate_name "peer" "$peer_name" || return 1
+	require_peer "$if_name" "$peer_name" || return 1
+	edit_include_file "$(peer_include_file "$if_name" "$peer_name")"
 }
 
 cmd_show_peer_interface(){
@@ -1173,6 +1250,14 @@ dispatch(){
 	update-peer)
 		require_wg_command
 		cmd_update_peer "$@"
+	;;
+	edit-interface-include)
+		require_wg_command
+		cmd_edit_interface_include "$@"
+	;;
+	edit-peer-include)
+		require_wg_command
+		cmd_edit_peer_include "$@"
 	;;
 	list-peers)
 		require_wg_command
