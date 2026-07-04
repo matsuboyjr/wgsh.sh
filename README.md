@@ -201,7 +201,7 @@ Adds a `PersistentKeepalive` line to the peer-side `peer.conf`. The value must b
 
 `update-interface` and `update-peer` regenerate configuration files for existing resources without changing existing `private.key` or `public.key` files.
 
-Newly generated `interface.conf` and peer-side `peer.conf` files contain a `# INCLUDE` anchor near the end of the `[Interface]` section. Include files are expanded dynamically by `show-interface`, `render-interface`, and `show-peer`; the source config files keep the anchor instead of being rewritten with include content.
+Include files are expanded dynamically by `show-interface`, `render-interface`, and `show-peer`; the source config files are not rewritten with include content. Interface includes are appended after the base `interface.conf`. Peer includes are inserted before the peer-side `[Peer]` section, so they add settings to the peer-side `[Interface]` section.
 
 Before updating, `update-interface` and `update-peer` print a `CURRENT` / `NEW` summary without private keys so optional values that will be removed by omitted options are visible before confirmation.
 
@@ -262,12 +262,12 @@ Delete a peer:
 
 `render-interface` prints the server-side configuration for an interface by combining:
 
-- `IF_NAME/interface/interface.conf`, with `IF_NAME/interface/include.conf` expanded after `# INCLUDE` when present
+- `IF_NAME/interface/interface.conf`, with `IF_NAME/interface/include.conf` appended when present
 - enabled peer `IF_NAME/peers/PEER_NAME/interface.conf` files
 
 It writes to standard output only.
 
-`show-interface` prints only the base interface config, expanding `IF_NAME/interface/include.conf` after `# INCLUDE` when present:
+`show-interface` prints only the base interface config, appending `IF_NAME/interface/include.conf` when present:
 
 ```sh
 ./wgsh.sh show-interface wg0
@@ -279,7 +279,7 @@ It writes to standard output only.
 ./wgsh.sh edit-interface-include wg0 < include.conf
 ```
 
-`show-peer` prints the client-side peer config, expanding `IF_NAME/peers/PEER_NAME/include.conf` after `# INCLUDE` when present:
+`show-peer` prints the client-side peer config, inserting `IF_NAME/peers/PEER_NAME/include.conf` before the peer-side `[Peer]` section when present:
 
 ```sh
 ./wgsh.sh show-peer wg0 phone

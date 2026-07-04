@@ -261,17 +261,35 @@ require_peer(){
 	fi
 }
 
-print_with_include(){
+print_interface_with_include(){
+	local conf_file=$1
+	local include_file=$2
+
+	cat "$conf_file"
+	if [ -f "$include_file" ];then
+		cat "$include_file"
+	fi
+}
+
+print_peer_with_include(){
 	local conf_file=$1
 	local include_file=$2
 	local line
+	local included=0
 
 	while IFS= read -r line || [ -n "$line" ];do
-		printf "%s\n" "$line"
-		if [ "$line" = "# INCLUDE" ] && [ -f "$include_file" ];then
-			cat "$include_file"
+		if [ "$included" -eq 0 ] && [ "$line" = "[Peer]" ];then
+			if [ -f "$include_file" ];then
+				cat "$include_file"
+			fi
+			included=1
 		fi
+		printf "%s\n" "$line"
 	done < "$conf_file"
+
+	if [ "$included" -eq 0 ] && [ -f "$include_file" ];then
+		cat "$include_file"
+	fi
 }
 
 edit_include_file(){
@@ -493,8 +511,6 @@ __END_OF_CONF__
 	fi
 	cat >> "$if_file" <<__END_OF_CONF__
 
-# INCLUDE
-
 # CLIENTS
 
 __END_OF_CONF__
@@ -540,8 +556,6 @@ __PEER_CONF__
 	fi
 
 	cat >> "$peer_file" <<__PEER_CONF__
-
-# INCLUDE
 
 [Peer]
 PublicKey = $(cat "$if2_dir/public.key")
@@ -1115,7 +1129,7 @@ cmd_render_interface(){
 	require_interface "$if_name" || return 1
 	if_file=$(interface_file "$if_name")
 
-	print_with_include "$if_file" "$(interface_include_file "$if_name")"
+	print_interface_with_include "$if_file" "$(interface_include_file "$if_name")"
 	if [ -d "$peers_dir" ];then
 		for peer_if in "$peers_dir"/*/interface.conf;do
 			if [ ! -f "$peer_if" ];then
@@ -1155,7 +1169,7 @@ cmd_show_interface(){
 	validate_name "interface" "$if_name" || return 1
 	require_interface "$if_name" || return 1
 	if_file=$(interface_file "$if_name")
-	print_with_include "$if_file" "$(interface_include_file "$if_name")"
+	print_interface_with_include "$if_file" "$(interface_include_file "$if_name")"
 }
 
 cmd_show_peer(){
@@ -1171,7 +1185,7 @@ cmd_show_peer(){
 	validate_name "peer" "$peer_name" || return 1
 	require_peer "$if_name" "$peer_name" || return 1
 	file=$(peer_file "$if_name" "$peer_name")
-	print_with_include "$file" "$(peer_include_file "$if_name" "$peer_name")"
+	print_peer_with_include "$file" "$(peer_include_file "$if_name" "$peer_name")"
 }
 
 cmd_edit_peer_include(){
@@ -1226,7 +1240,7 @@ cmd_show_peer_qr(){
 		return 1
 	fi
 
-	qrencode -t ansiutf8 < "$file"
+	print_peer_with_include "$file" "$(peer_include_file "$if_name" "$peer_name")" | qrencode -t ansiutf8
 }
 
 dispatch(){
